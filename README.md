@@ -2,6 +2,8 @@
 
 <img src="docs/images/Gemini_Generated_Image_y9hztuy9hztuy9hz.png" alt="Slice-Driven Dev" style="zoom: 20%;" />
 
+**[English version →](README.en.md)**
+
 Slice-Driven Dev 是一个Code skill，让 AI 在帮你写代码时遵守一套工程纪律，使项目可验证、可追溯、可交接。
 
 AI 写代码很快，但"快"本身不是问题——问题是一次动了太多地方、意图没说清楚就开始做、验证靠感觉而不是工具，出了事不知道从哪查。这个 skill 的核心做法是：**把每一段工作压缩成一个极小的"切片"**，每个切片在动手前声明它做什么、不做什么、怎么算完成，做完必须有测试、有文档条目、有 commit。切片是基本单位，不可再分，不可混搭——一刀一件事，刀刀留痕迹。
