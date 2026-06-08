@@ -1,8 +1,10 @@
 # Slice-Driven Dev
 
-一个 Claude Code Skill，让 AI 在写代码时遵守工程纪律——少花时间善后，多花时间交付。
+Slice-Driven Dev 是一个Code skill，让 AI 在帮你写代码时遵守一套工程纪律，使项目可验证、可追溯、可交接。
 
-[English version below](#english)
+AI 写代码很快，但"快"本身不是问题——问题是一次动了太多地方、意图没说清楚就开始做、验证靠感觉而不是工具，出了事不知道从哪查。这个 skill 的核心做法是：**把每一段工作压缩成一个极小的"切片"**，每个切片在动手前声明它做什么、不做什么、怎么算完成，做完必须有测试、有文档条目、有 commit。切片是基本单位，不可再分，不可混搭——一刀一件事，刀刀留痕迹。
+
+Claude的上下文对于一个大项目来说是一个问题，上下文过长会消耗很多token。该skill的解决办法就是以一个大切片为粒度进行对话的切换，使用SESSION_CHECKPOINT文档来热启动下一个对话，零摩擦成本。
 
 ---
 
@@ -18,7 +20,7 @@
 
 **AI 生成输入，确定性工具判断输出。** Claude 出方案、写代码、列边界用例；编译器、测试 runner、linter 给出对错。"我看了一下感觉没问题"不算验证。
 
-**文档是工作的副产品，不是尾声的总结。** 每个切片完成时同步产出三样东西：代码链路条目（文件:符号 → 改了什么）、决策记录（选了什么、否决了什么）、架构更新（模块边界变了才触发）。决策模板有硬约束——一句话 30 字以内，压不出来说明决策本身还没想清楚。
+**文档是工作的副产品，不是尾声的总结。** 每个切片完成时同步产出三样东西：**代码链路条目**（文件:符号 → 改了什么）、**决策记录**（选了什么、否决了什么）、**架构更新**（模块边界变了才触发）。决策模板有硬约束——一句话 30 字以内，压不出来说明决策本身还没想清楚。
 
 **大任务先拆切片再动手。** 涉及多文件、多步骤的任务，必须先分解成独立可提交的单元。每个单元只依赖文件状态，不依赖"我们刚才聊过的那个值"。
 
@@ -51,25 +53,15 @@
 
 切片是工作的基本单位。它有声明、有测试、有代码链路条目、有 commit。其他的都是噪音。
 
----
+## 切片计划例子
 
-<a name="english"></a>
-## English
+![切片计划例子](docs/images/image-20260608103416291.png)
 
-A Claude Code skill that enforces disciplined software engineering habits when working with AI — so you spend less time untangling messes and more time shipping.
+## 决策文档例子
 
-**Clarify before coding.** One targeted question at a time, until intent is clear enough to act (≥95% confidence). No building on guesses.
+![决策文档例子](docs/images/image-20260608103633603.png)
 
-**Work in tiny, verifiable slices.** Declare scope, exclusions, and done-criteria upfront. No mixing features with refactors, no "while I'm at it" creep.
+## 代码链路例子
 
-**Keep tests green.** Changed a path → run tests. New branch → write a test. Bug fix → failing test first, then fix.
+![代码链路例子](docs/images/image-20260608103937937.png)
 
-**AI generates inputs; deterministic tools judge outputs.** Compiler/test runner/linter decides correctness, not "I checked and it looks fine."
-
-**Document continuously.** Every slice produces: a code trail entry, a decision record, and an architecture update if boundaries changed. Decision template is kept tight — 30-word limit, or the decision isn't clear yet.
-
-**Break large tasks into slices before starting.** Multi-file, multi-step work gets decomposed into independent, committable units first. Each depends only on file state.
-
-**Refresh the session checkpoint before switching context.** Claude overwrites `SESSION_CHECKPOINT.md` with the minimum a fresh session needs: what's in progress, next concrete actions, uncommitted work.
-
-**Core principle:** A slice is the unit of work. Declaration + test + code trail + commit. Everything else is noise.
