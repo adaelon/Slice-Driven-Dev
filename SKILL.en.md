@@ -22,37 +22,154 @@ No explicit invocation needed. But when the user says a **trigger phrase** (see 
 
 Core belief: **without aligning on true intent, every slice downstream is a guess.**
 
-### §0 Confidence-Triggered Clarification Protocol
+### §0 Alignment Confirmation Sheet (exit gate)
 
-**Trigger**: Before taking any SWE task (write code / change code / design / write docs / log a decision), self-assess — "How confident am I in the user's **true intent**?"
+§0's endpoint is not "I think I got it" but producing an **Alignment Confirmation Sheet** that downstream can verify item by item. This sheet contains three mutually independent, all-required elements that together form the sole legal credential for entering downstream.
 
-- Confidence **≥95%** → Act immediately, don't interrupt the user.
-- Confidence **<95%** → Enter the clarification loop until ≥95% before proposing anything.
+**Exit gate (conjunctive normal form — any false blocks):**
+```
+exit(§0) = semantic_confirmed ∧ term_map.resolved ∧ risk_acknowledged
+```
+**Four-step flow (no skipping, no merging):**
 
-**Protocol**:
-1. Pick the **one ambiguity that most affects direction**. Test: would different answers lead to fundamentally different solutions? If not, it's not worth asking.
+1. **Semantic Lock**
+   The agent must restate to the user in one sentence: what to do, what explicitly not to do, and the success criterion. The user must give an **explicit affirmative** (e.g., "Yes, that's what I mean"). The user's confirmation is a traceable message, not the agent's inference.
+
+2. **Term Scan**
+   Before declaring understanding, the agent must cross-check **every key noun and verb** in the requirement against `CONTEXT.md` (if it exists):
+   - Aligns with an existing definition → mark `EXISTING`
+   - New concept → mark `NEW`, give a provisional definition
+   - Conflicts with an existing definition → mark `CONFLICT`
+   - **`UNRESOLVED` status is absolutely forbidden.** Zero unresolved symbols is a hard floor.
+   If the repo has no `CONTEXT.md`, mark the first core terms `NEW` with provisional definitions at this stage; lazily create `CONTEXT.md` when the first term is formally resolved.
+
+3. **Risk Disclosure (one-liner)**
+   The agent must expose at least one potential architectural conflict in one sentence (e.g., "Your 'global refund' spans the Order and Payment bounded contexts; I need to align the event contract first — continue?"). The user must reply "acknowledged, continue" or "accept the narrower scope." **No confirmation, no flow.**
+
+4. **Sign-off**
+   Once all three elements are met, the agent outputs the **Alignment Confirmation Sheet**, containing:
+   - **FrozenIntent**: the frozen intent summary (what to do, what not to do, success criterion)
+   - **TermMap**: the term map (status of each key noun/verb: EXISTING / NEW / CONFLICT / BOUNDARY_CHANGE)
+   - **RiskReceipt**: the risk-disclosure receipt (record of user confirmation)
+   - **ChangeType**: the change-type label (`[pure-technical] / [model-extension] / [boundary-refactor]`)
+
+**Questioning rules (in parallel with the four steps)**:
+1. Pick the **one ambiguity that most affects direction**. Test: would different answers send the solution down fundamentally different paths? If the answer wouldn't change the solution, it's not worth asking.
 2. **One question at a time.** Never fire 3–4 at once — each follow-up should depend on the previous answer.
 3. Use **AskUserQuestion** (with options when there are clear candidates) or plain text (for open questions).
-4. After each answer → **re-assess confidence** → if still <95%, ask the next question; if ≥95%, move to the proposal.
+4. After each answer → **re-assess the three elements** → if any is unmet, continue with the next question; if all are met, sign the sheet and flow on.
 5. Before proposing, **briefly restate your understanding** ("Both aligned: X / Y") — give the user one last chance to correct.
+6. After **4 rounds** still unable to satisfy all three elements simultaneously → stop asking, **list the multiple interpretations** you currently hold and let the user choose, rather than questioning endlessly.
 
 **Prohibitions**:
-- No writing code or producing a long proposal before reaching 95%.
-- No disguising confirmation requests as clarification — "Should I do X?" is a permission ask, not clarification. **Clarifying questions must genuinely change direction.**
-- No asking things you can figure out yourself; no asking about stylistic preferences (colors, naming) while ignoring strategic ambiguity.
-- No fishing for questions when the user has already been clear.
-
-**Common traps that inflate confidence** (any of these usually means confidence is actually <95%):
-- The task has multiple reasonable interpretations and you silently picked one;
-- The user didn't specify a **key parameter** (scope, priority, boundary);
-- The task resembles a familiar pattern but isn't quite the same;
-- There's a "should we also do X" tradeoff lurking;
-- The requirement contains two or more non-independent ambiguities.
+- No writing code or producing a long proposal before all three elements are met.
+- No disguising confirmation requests as clarification — "I'm about to do X, OK?" is a permission ask, not clarification; **a clarifying question must genuinely change direction.**
+- No asking things you can guess yourself (wastes the user's time); no asking pure preference details (colors, naming) while ignoring strategic ambiguity.
+- No fishing for questions when the user has already written the intent clearly (over-clarifying is also an interruption).
+- No carrying `UNRESOLVED` terms downstream.
 
 **Overrides**:
-- User says "just do it / don't ask / use your judgment" → skip §0, proceed with best guess, **explicitly label assumptions** in the output.
-- User's request is already very detailed → you may hit ≥95% immediately, act.
-- After **4 rounds** still below 95% → stop asking, **list your current interpretations** and let the user choose.
+- User explicitly says "just do it / don't ask / use your judgment" → skip §0, proceed with best guess, **explicitly label "I assumed X; if wrong I'll change it back" in the output.**
+- User has already written the intent in fine detail → you may satisfy all three elements right away, sign the sheet and flow on.
+- If a later stage (§0.5) finds it needs to modify the intent or scope frozen by §0 → **must force a rollback to §0**, re-sign the confirmation sheet; no quietly absorbing it inside §0.5.
+
+**Exception flow — §0 term-irresolvability circuit breaker**:
+- **Condition**: `TermMap` contains a `CONFLICT` that, after 2 rounds of questioning on that conflict, still cannot be eliminated.
+- **Action**: §0 must not enter §0.5. Output a **"partial alignment"** status and offer the user two downgrade options:
+  - **Option A**: Narrow the scope to pure-technical (e.g., only change UI/API passthrough, don't touch the domain model), and re-run §0.
+  - **Option B**: Split the task, isolating the conflicting part as a new domain module.
+- **Principle**: **don't carry unresolved symbols into §0.5** — this is a hard protection for downstream.
+
+---
+
+## §0.5 Domain Alignment Protocol (Grill Mode)
+
+Core belief: **before terms are unambiguous and key decisions are on disk, declaring an A1 slice or writing code is forbidden.**
+
+**Trigger (auto-routed, no manual entry)**:
+- After §0 signs off the Alignment Confirmation Sheet, the system **automatically** inspects the `TermMap`:
+  - If all entries are `EXISTING` (no new concepts, no boundary changes) → **bypass §0.5**, go straight to A1 slice declaration.
+  - If any entry is `NEW` / `CONFLICT` / `BOUNDARY_CHANGE` → **force-activate §0.5**; the A1 entry stays locked until §0.5 completes and is written to disk.
+
+**Input contract (read-only)**:
+- **FrozenIntent**: the intent and scope frozen by §0. §0.5 **has no right to modify it**.
+- **TermMap**: the term map produced by §0. The only thing §0.5 may modify is writing back precise definitions for its `NEW`/`CONFLICT` entries.
+- **ChangeType**: the change-type label, used to decide Grill depth.
+
+**Protocol actions**:
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+
+Ask the questions **one at a time**, waiting for feedback on each question before continuing.
+
+If a question can be answered by exploring the codebase, explore the codebase instead.
+
+**Domain awareness**
+During codebase exploration, also look for existing documentation:
+
+**File structure**
+
+Most repos have a single context:
+
+```
+/
+├── CONTEXT.md
+├── docs/
+│   └── adr/
+│       ├── 0001-event-sourced-orders.md
+│       └── 0002-postgres-for-write-model.md
+└── src/
+```
+
+If a `CONTEXT-MAP.md` exists at the root, the repo has multiple contexts. The map points to where each one lives:
+
+```
+/
+├── CONTEXT-MAP.md
+├── docs/
+│   └── adr/                          ← system-wide decisions
+├── src/
+│   ├── ordering/
+│   │   ├── CONTEXT.md
+│   │   └── docs/adr/                 ← context-specific decisions
+│   └── billing/
+│       ├── CONTEXT.md
+│       └── docs/adr/
+```
+
+Create files lazily — only when you have something to write. If no CONTEXT.md exists, create one when the first term is resolved. If no docs/adr/ exists, create it when the first ADR is needed.
+
+**During the session**
+- **Challenge against the glossary**: When the user uses a term that conflicts with the existing language in CONTEXT.md, call it out immediately. "Your glossary defines 'cancellation' as X, but you seem to mean Y — which is it?"
+- **Sharpen fuzzy language**: When the user uses vague or overloaded terms, propose a precise canonical term. "You're saying 'account' — do you mean the Customer or the User? Those are different things."
+- **Discuss concrete scenarios**: When domain relationships are being discussed, stress-test them with specific scenarios. Invent scenarios that probe edge cases and force the user to be precise about the boundaries between concepts.
+- **Cross-reference with code**: When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which is right?"
+- **Update CONTEXT.md inline**: When a term is resolved, update CONTEXT.md right there. Don't batch these up — capture them as they happen. Use the format in `CONTEXT-FORMAT.md`.
+  - CONTEXT.md should be totally devoid of implementation details. Do not treat CONTEXT.md as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
+- **Offer ADRs sparingly**: Only offer to create an ADR when all three are true:
+  1. Hard to reverse — the cost of changing your mind later is meaningful
+  2. Surprising without context — a future reader will wonder "why did they do it this way?"
+  3. The result of a real trade-off — there were genuine alternatives and you picked one for specific reasons
+  If any of the three is missing, skip the ADR. Use the format in `ADR-FORMAT.md`.
+
+**§0.5 output standard (preconditions to unlock A1)**:
+1. Precise definitions for all `NEW`/`CONFLICT` terms, merged back into `CONTEXT.md`.
+2. At least one ADR (if trigger conditions are met), recording the key architectural trade-off.
+3. An explicit **"domain alignment complete"** declaration.
+4. An updated `TermMap` with zero unresolved symbols.
+
+**Exception flows**:
+- **Intent-drift rollback**: If during Grill §0.5 discovers it needs to expand or modify `FrozenIntent` (i.e., "intent scope overflow"), **immediately freeze the ADRs and term definitions already on disk and force a rollback to §0**. §0 must re-assess semantic clarity and risk disclosure against the new intent, and re-sign the confirmation sheet.
+- **Deadlock back-off**: After 2 consecutive rounds of Grill questioning, the same term ambiguity remains and no new information is injected.
+  - If some terms and decisions are already on disk → **accept the current partial alignment**, mark the unresolved issues as `PENDING` in an ADR, explicitly labeled "tech debt." Allow entry into A1, but A1 must add protective comments or abstract interfaces for these `PENDING` items, avoiding hard-coding.
+  - If nothing is on disk → **roll straight back to §0**.
+
+**Prohibitions**:
+- No declaring an A1 slice or writing code before §0.5 completes.
+- No modifying the intent and scope frozen by §0 (FrozenIntent).
+- No batch-updating docs (must write CONTEXT.md in real time).
+- No treating CONTEXT.md as a repository of implementation details.
+- No disguising confirmation requests as clarification.
 
 ---
 
@@ -302,7 +419,8 @@ Read these files in order to restore full context:
 
 | User says... or task is... | Must activate | Do not skip |
 |---|---|---|
-| Any SWE task with ambiguous intent | §0 Intent clarification | One question at a time, ≥95% confidence before acting |
+| Any SWE task starting, intent ambiguous | §0 Intent clarification | No action until all three elements of the conjunctive gate are met |
+| After §0 sheet signed, TermMap has NEW/CONFLICT/BOUNDARY_CHANGE | §0.5 Domain alignment (Grill) | No A1 slice declaration before terms are unambiguous and decisions are on disk |
 | "document this" / "log the decision" | C1 Decision logging | Hard template shape |
 | "refactor" | A3 Refactoring discipline | Confirm tests green first |
 | "make a slice" / "do this in one pass" | A1 Slice declaration | Declare input/output/criteria |
@@ -326,7 +444,11 @@ Read these files in order to restore full context:
 
 ## Self-check (run through before completing any major task)
 
-- [ ] Did I have ≥95% confidence in true intent before acting? Was it genuine, or did I skip §0 with inflated confidence? (§0)
+- [ ] Are all three §0 elements ticked? Semantic restatement confirmed / term map free of UNRESOLVED / risk disclosure acknowledged? (§0)
+- [ ] Did §0 questioning stay within 4 rounds? If exceeded, did I list the interpretations for the user to choose? (§0)
+- [ ] Was §0.5 correctly triggered or bypassed per TermMap status? (§0.5)
+- [ ] After §0.5, is the TermMap free of unresolved symbols? Is an ADR on disk (if trigger conditions were met)? (§0.5)
+- [ ] If intent drift appeared in §0.5, did I force a rollback to §0 rather than absorbing it inside §0.5? (§0.5)
 - [ ] How many slices was this work divided into? Does each have declared output and done-criteria? (A1 / A4)
 - [ ] Did I run tests on all changed paths? Did new paths get coverage? (A2)
 - [ ] If I refactored, was it a true refactor (behavior unchanged + tests unchanged)? (A3)
